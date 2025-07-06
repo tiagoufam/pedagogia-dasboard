@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Relatório de Análise – Questionário Pedagogia em Coari</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+  <script src="https://unpkg.com/papaparse@latest/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chrono-node/1.3.11/chrono.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.15.0/Recharts.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div id="root" class="container mx-auto p-4"></div>
+
+  <script type="text/babel">
+    const {useState, useEffect} = React;
+    const {BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend} = Recharts;
+
+    const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9', '#f97316'];
+
+    /** Carrega o CSV com PapaParse */
+    function loadFileData(fileName = 'questionnaire.csv') {
+      return new Promise((resolve, reject) => {
+        Papa.parse(fileName, {
+          header: true,
+          skipEmptyLines: true,
+          complete: results => resolve(results.data),
+          error: err => reject(err)
+        });
+      });
+    }
+
+    /** Componente principal */
+    function App() {
+      const [data, setData] = useState(null);
+      const [error, setError] = useState(null);
+
+      useEffect(() => {
+        loadFileData().then(setData).catch(setError);
+      }, []);
+
+      if (error) {
+        return <div className="text-red-600">Erro ao carregar dados: {error.message}</div>;
+      }
+      if (!data) {
+        return <div className="text-center text-lg">Carregando dados...</div>;
+      }
+
+      const clean = str => str ? str.trim() : '';
+
+      const total = data.length;
+
+      /* Estatísticas principais */
+      const participationCounts = data.reduce((acc, row) => {
+        const key = clean(row['VOCÊ ACEITARIA PARTICIPAR DA NOSSA PESQUISA ?']);
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      const participationYes = participationCounts['Sim'] || 0;
+
+      const interestCounts = data.reduce((acc, row) => {
+        const resp = clean(row['VOCÊ TEM INTERESSE EM CURSAR LICENCIATURA EM PEDAGOGIA? POR QUÊ?']).toLowerCase();
+        const key = resp.includes('não') || resp.includes('nao') ? 'Não' : 'Sim';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      const interestYes = interestCounts['Sim'] || 0;
+
+      const ageDist = {};
+      data.forEach(row => {
+        const age = clean(row['Idade']);
+        if (age) ageDist[age] = (ageDist[age] || 0) + 1;
+      });
+
+      const turnDist = {};
+      data.forEach(row => {
+        const turn = clean(row['SE A RESPOSTA ANTERIOR FOR SIM, QUAL O TURNO']);
+        if (turn) turnDist[turn] = (turnDist[turn] || 0) + 1;
+      });
+
+      const raceDist = {};
+      data.forEach(row => {
+        const race = clean(row['VOCÊ SE AUTODECLARA ']);
+        if (race) raceDist[race] = (raceDist[race] || 0) + 1;
+      });
+
+      const evalDist = {};
+      data.forEach(row => {
+        const val = clean(row['COMO VOCÊ AVALIA A IMPLEMENTAÇÃO DO CURSO DE LICENCIATURA EM PEDAGOGIA NO ISB?']);
+        if (val) evalDist[val] = (evalDist[val] || 0) + 1;
+      });
+
+      /* Correlação renda x dependentes */
+      function incomeToNum(income) {
+        switch (clean(income)) {
+          case 'Menos de 02 salários-mínimos': return 1;
+          case '02 a 04 salários-mínimos': return 2;
+          case '04 a 06 salários-mínimos': return 3;
+          case '06 a 08 salários-mínimos': return 4;
+          case 'Mais de 08 salários-mínimos': return 5;
+          default: return null;
+        }
+      }
+      function peopleToNum(p) {
+        const t = p.toLowerCase();
+        if (t.includes('mais')) return 6;
+        if (t.includes('4')) return 4;
+        if (t.includes('3')) return 3;
+        if (t.includes('2')) return 2;
+        if (t.includes('1')) return 1;
+        return null;
+      }
+      const numericPairs = data.map(row => {
+        const inc = incomeToNum(row['RENDA FAMILIAR MENSAL (A SOMA DE TODAS AS PESSOAS QUE RECEBEM E MORAM COM VOCÊ)']);
+        const ppl = peopleToNum((row['QUANTAS PESSOAS, INCLUINDO VOCÊ, VIVEM DA RENDA MENSAL DE SUA FAMILÍA?'] || ''));
+        return [inc, ppl];
+      }).filter(x => x[0] !== null && x[1] !== null);
+      const corr = (() => {
+        const n = numericPairs.length;
+        if (n === 0) return 0;
+        const sx = numericPairs.reduce((s, a) => s + a[0], 0);
+        const sy = numericPairs.reduce((s, a) => s + a[1], 0);
+        const sxx = numericPairs.reduce((s, a) => s + a[0] * a[0], 0);
+        const syy = numericPairs.reduce((s, a) => s + a[1] * a[1], 0);
+        const sxy = numericPairs.reduce((s, a) => s + a[0] * a[1], 0);
+        return (n * sxy - sx * sy) / Math.sqrt((n * sxx - sx * sx) * (n * syy - sy * sy));
+      })();
+
+      const objToChart = (obj) => Object.entries(obj).map(([k, v]) => ({ name: k, value: v }));
+
+      return (
+        <div className="space-y-8">
+          <header className="bg-blue-700 text-white p-4 rounded-xl shadow">
+            <h1 className="text-2xl font-bold">Relatório de Análise – Questionário Pedagogia em Coari</h1>
+            <p className="mt-2">Total de respondentes: {total}</p>
+          </header>
+
+          <section className="p-4 bg-white rounded-xl shadow">
+            <h2 className="text-xl font-semibold mb-2">Principais achados</h2>
+            <ul className="list-disc list-inside space-y-1">
+              <li><strong>{(participationYes / total * 100).toFixed(1)}%</strong> ({participationYes}/{total}) aceitariam participar da pesquisa.</li>
+              <li><strong>{(interestYes / total * 100).toFixed(1)}%</strong> ({interestYes}/{total}) demonstram interesse em cursar Pedagogia.</li>
+              <li>Correlação de Pearson entre renda e dependentes: <strong>{corr.toFixed(2)}</strong> (fraca e negativa).</li>
+              <li>Fatores financeiros surgem como principal barreira citada.</li>
+            </ul>
+          </section>
+
+          <section className="grid md:grid-cols-2 gap-6">
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-medium mb-2">Distribuição por Faixa Etária</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie data={objToChart(ageDist)} dataKey="value" nameKey="name" label>
+                    {objToChart(ageDist).map((entry, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-medium mb-2">Interesse por Turno</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={objToChart(turnDist)}>
+                  <XAxis dataKey="name" fontSize={12} />
+                  <YAxis fontSize={12} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="value" name="Qtd">
+                    {objToChart(turnDist).map((entry, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-medium mb-2">Auto‑declaração Racial</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie data={objToChart(raceDist)} dataKey="value" nameKey="name" label>
+                    {objToChart(raceDist).map((entry, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl shadow">
+              <h3 className="font-medium mb-2">Avaliação da Implementação</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={objToChart(evalDist)}>
+                  <XAxis dataKey="name" fontSize={12} />
+                  <YAxis fontSize={12} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="value" name="Qtd">
+                    {objToChart(evalDist).map((entry, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </section>
+
+          <section className="p-4 bg-white rounded-xl shadow">
+            <h2 className="text-xl font-semibold mb-2">Temas Qualitativos (Bardin)</h2>
+            <p><strong>Interesse em Pedagogia:</strong> identificação com educação, desejo de trabalhar com crianças, paixão por ensinar e oportunidades profissionais.</p>
+            <p><strong>Barreiras para universidades particulares:</
