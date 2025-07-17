@@ -9,3 +9,4 @@ formulário sobre o curso de Licenciatura em Pedagogia no ISB/UFAM.
 git clone https://github.com/<seu-usuario>/<repo>.git
 cd <repo>
 python3 -m http.server   # ou simplesmente abra o HTML no navegador
+ 
